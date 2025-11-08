@@ -69,7 +69,7 @@ public class ListenerClass implements Listener {
         UUIDCache.storeUUIDNamePair(p.getUniqueId(), p.getName());
 
         // allow worldguard to resolve all UUIDs to names
-        Bukkit.getScheduler().runTaskAsynchronously(ProtectionStones.getInstance(), () -> UUIDCache.storeWGProfile(p.getUniqueId(), p.getName()));
+        ProtectionStones.getInstance().getAsyncExecutor().execute(() -> UUIDCache.storeWGProfile(p.getUniqueId(), p.getName()));
 
         // add recipes to player's recipe book
         p.discoverRecipes(RecipeUtil.getRecipeKeys());
@@ -83,11 +83,11 @@ public class ListenerClass implements Listener {
 
         // tax join message
         if (ProtectionStones.getInstance().getConfigOptions().taxEnabled && ProtectionStones.getInstance().getConfigOptions().taxMessageOnJoin) {
-            Bukkit.getScheduler().runTaskAsynchronously(ProtectionStones.getInstance(), () -> {
+            ProtectionStones.getInstance().getAsyncExecutor().execute(() -> {
                 int amount = 0;
                 for (PSRegion psr : psp.getTaxEligibleRegions()) {
                     for (PSRegion.TaxPayment tp : psr.getTaxPaymentsDue()) {
-                        amount += tp.getAmount();
+                        amount += (int) tp.getAmount();
                     }
                 }
 
@@ -103,14 +103,13 @@ public class ListenerClass implements Listener {
     public void onBlockPlaceLowPriority(PlaceBlockEvent event) {
         var cause = event.getCause().getRootCause();
 
-        if (cause instanceof Player player && event.getBlocks().size() >= 1) {
-            var block = event.getBlocks().get(0);
-            if (!ProtectionStones.isProtectBlockItem(player.getInventory().getItemInHand())) {
+        if (cause instanceof Player player && !event.getBlocks().isEmpty()) {
+            var block = event.getBlocks().getFirst();
+            if (!ProtectionStones.isProtectBlockItem(player.getInventory().getItemInMainHand())) {
                 return;
             }
 
-            var options = ProtectionStones.getBlockOptions(player.getInventory().getItemInHand());
-
+            var options = ProtectionStones.getBlockOptions(player.getInventory().getItemInMainHand());
             if (options != null && options.placingBypassesWGPassthrough) {
                 // check if any regions here have the passthrough flag
                 // we can't query unfortunately, since null flags seem to equate to ALLOW, when we want it to be DENY
@@ -489,7 +488,7 @@ public class ListenerClass implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerTeleport(PlayerTeleportEvent event) {
         // we only want plugin triggered teleports, ignore natural teleportation
-        if (event.getCause() == TeleportCause.ENDER_PEARL || event.getCause() == TeleportCause.CHORUS_FRUIT) return;
+        if (event.getCause() == TeleportCause.ENDER_PEARL || event.getCause() == TeleportCause.CONSUMABLE_EFFECT) return;
 
         if (event.getPlayer().hasPermission("protectionstones.tp.bypassprevent")) return;
 

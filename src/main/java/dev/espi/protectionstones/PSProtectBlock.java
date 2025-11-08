@@ -19,6 +19,9 @@ import com.electronwill.nightconfig.core.conversion.Path;
 import com.electronwill.nightconfig.core.conversion.SpecDoubleInRange;
 import com.electronwill.nightconfig.core.conversion.SpecIntInRange;
 import com.sk89q.worldguard.protection.flags.Flag;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.HashMap;
@@ -179,6 +182,9 @@ public class PSProtectBlock {
     public HashMap<Flag<?>, Object> regionFlags = new HashMap<>();
     public LinkedHashMap<String, List<String>> allowedFlags = new LinkedHashMap<>();
 
+    public Component displayNameComponent;
+    public List<Component> loreComponent;
+
     /**
      * Get the protection block item for this specific protection block.
      *
@@ -186,5 +192,14 @@ public class PSProtectBlock {
      */
     public ItemStack createItem() {
         return ProtectionStones.createProtectBlockItem(this);
+    }
+
+    public void handleComponents() {
+        this.displayNameComponent = this.deserialize(this.displayName);
+        this.loreComponent = this.lore.stream().map(this::deserialize).toList();
+    }
+
+    private Component deserialize(String string) {
+        return MiniMessage.miniMessage().deserialize(string).decorationIfAbsent(TextDecoration.ITALIC, TextDecoration.State.FALSE);
     }
 }

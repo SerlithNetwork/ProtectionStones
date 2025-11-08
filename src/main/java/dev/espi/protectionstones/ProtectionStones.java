@@ -18,6 +18,7 @@ package dev.espi.protectionstones;
 import com.electronwill.nightconfig.core.Config;
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.toml.TomlFormat;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.sk89q.worldguard.protection.managers.RegionManager;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import dev.espi.protectionstones.commands.ArgHelp;
@@ -28,6 +29,7 @@ import dev.espi.protectionstones.utils.RecipeUtil;
 import dev.espi.protectionstones.utils.upgrade.LegacyUpgrade;
 import dev.espi.protectionstones.utils.UUIDCache;
 import dev.espi.protectionstones.utils.WGUtils;
+import io.papermc.paper.persistence.PersistentDataContainerView;
 import net.milkbowl.vault.economy.Economy;
 import org.bstats.bukkit.Metrics;
 import org.bukkit.*;
@@ -39,16 +41,21 @@ import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
-import org.bukkit.inventory.meta.tags.CustomItemTagContainer;
-import org.bukkit.inventory.meta.tags.ItemTagType;
+import org.bukkit.inventory.meta.components.CustomModelDataComponent;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import net.luckperms.api.LuckPerms;
+import org.slf4j.Logger;
 
 import java.io.File;
 import java.lang.reflect.Field;
 import java.util.*;
-import java.util.logging.Logger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -76,6 +83,11 @@ public class ProtectionStones extends JavaPlugin {
     private PSConfig configOptions;
     static HashMap<String, PSProtectBlock> protectionStonesOptions = new HashMap<>();
 
+    // namespaced keys
+    private NamespacedKey isProtectionBlock;
+
+    // bounded async handler
+    private ExecutorService executor;
 
     // ps alias to id cache
     // <world-name, <alias, [ids]>>
@@ -199,6 +211,15 @@ public class ProtectionStones extends JavaPlugin {
         return l;
     }
 
+    /**
+     * Returns the dedicated bounded async executor
+     *
+     * @return executor
+     */
+    public ExecutorService getAsyncExecutor() {
+        return this.executor;
+    }
+
 
     /* ~~~~~~~~~~ Static methods ~~~~~~~~~~~~~~ */
 
@@ -213,7 +234,7 @@ public class ProtectionStones extends JavaPlugin {
      * @return the plugin's logger
      */
     public static Logger getPluginLogger() {
-        return plugin.getLogger();
+        return plugin.getSLF4JLogger();
     }
 
     /**
@@ -362,7 +383,7 @@ public class ProtectionStones extends JavaPlugin {
      *
      * @param w    the world that the region is in
      * @param psID the worldguard region ID of the region
-     * @return whether or not the event was cancelled
+     * @return whether the event was cancelled
      */
 
     public static boolean removePSRegion(World w, String psID) {
@@ -406,7 +427,7 @@ public class ProtectionStones extends JavaPlugin {
      * the item is created by ProtectionStones (in this case have checkNBT false).
      *
      * @param item     the item to check
-     * @param checkNBT whether or not to check if the plugin signed off on the item (restrict-obtaining)
+     * @param checkNBT whether to check if the plugin signed off on the item (restrict-obtaining)
      * @return whether or not the item is a valid protection block item, and was created by protection stones
      */
 
@@ -417,30 +438,15 @@ public class ProtectionStones extends JavaPlugin {
         // check for player heads
         if (!checkNBT) return true; // if not checking nbt, you only need to check type
 
-        boolean tag = false;
-
         // otherwise, check if the item was created by protection stones (stored in custom tag)
-        if (item.getItemMeta() != null) {
-            CustomItemTagContainer tagContainer = item.getItemMeta().getCustomTagContainer();
-            try { // check if tag byte is 1
-                Byte isPSBlock = tagContainer.getCustomTag(new NamespacedKey(ProtectionStones.getInstance(), "isPSBlock"), ItemTagType.BYTE);
-                tag = isPSBlock != null && isPSBlock == 1;
-            } catch (IllegalArgumentException es) {
-                try { // some nbt data may be using a string (legacy nbt from ps version 2.0.0 -> 2.0.6)
-                    String isPSBlock = tagContainer.getCustomTag(new NamespacedKey(ProtectionStones.getInstance(), "isPSBlock"), ItemTagType.STRING);
-                    tag = isPSBlock != null && isPSBlock.equals("true");
-                } catch (IllegalArgumentException ignored) {
-                }
-            }
-        }
-
-        return tag; // whether or not the nbt tag was found
+        PersistentDataContainerView container = item.getPersistentDataContainer();
+        return container.getOrDefault(plugin.isProtectionBlock, PersistentDataType.BOOLEAN, false);
     }
 
     /**
      * Check if an item is a valid protection block, and if the block type has restrict-obtaining on, check if it was
      * created by ProtectionStones (custom NBT tag). Be aware that blocks may have restrict-obtaining
-     * off, meaning that it ignores whether or not the item is created by ProtectionStones.
+     * off, meaning that it ignores whether the item is created by ProtectionStones.
      *
      * @param item     the item to check
      * @return whether or not the item is a valid protection block item, and was created by protection stones
@@ -460,6 +466,7 @@ public class ProtectionStones extends JavaPlugin {
      * @return the item with NBT and other metadata to signify that it was created by protection stones
      */
 
+    @SuppressWarnings("UnstableApiUsage")
     public static ItemStack createProtectBlockItem(PSProtectBlock b) {
         ItemStack is = BlockUtil.getProtectBlockItemFromType(b.type);
 
@@ -478,16 +485,16 @@ public class ProtectionStones extends JavaPlugin {
 
         // set custom model data
         if (b.customModelData != -1) {
-            im.setCustomModelData(b.customModelData);
+            CustomModelDataComponent model = im.getCustomModelDataComponent();
+            model.setFloats(List.of((float) b.customModelData));
+            im.setCustomModelDataComponent(model);
         }
 
         // add display name and lore
-        if (!b.displayName.equals("")) {
-            im.setDisplayName(ChatColor.translateAlternateColorCodes('&', b.displayName));
+        if (!b.displayName.isEmpty()) {
+            im.customName(b.displayNameComponent);
         }
-        List<String> lore = new ArrayList<>();
-        for (String s : b.lore) lore.add(ChatColor.translateAlternateColorCodes('&', s));
-        im.setLore(lore);
+        im.lore(b.loreComponent);
 
         // hide enchant name (cannot call addUnsafeEnchantment here)
         if (b.enchantedEffect) {
@@ -495,7 +502,7 @@ public class ProtectionStones extends JavaPlugin {
         }
 
         // add identifier for protection stone created items
-        im.getCustomTagContainer().setCustomTag(new NamespacedKey(plugin, "isPSBlock"), ItemTagType.BYTE, (byte) 1);
+        im.getPersistentDataContainer().set(plugin.isProtectionBlock, PersistentDataType.BOOLEAN, true);
 
         is.setItemMeta(im);
 
@@ -534,8 +541,7 @@ public class ProtectionStones extends JavaPlugin {
                 commandMap.register(getInstance().configOptions.base_command, psc); // register command
 
             } catch (Exception | NoSuchMethodError e) {
-                ProtectionStones.getPluginLogger().severe("Unable to load plugin commands!");
-                e.printStackTrace();
+                ProtectionStones.getPluginLogger().error("Unable to load plugin commands!", e);
             }
 
         }
@@ -545,6 +551,9 @@ public class ProtectionStones extends JavaPlugin {
     public void onLoad() {
         // register WG flags
         FlagHandler.registerFlags();
+
+        // register protection block key
+        this.isProtectionBlock = new NamespacedKey(this, "is-protection-block");
     }
 
     @Override
@@ -569,13 +578,15 @@ public class ProtectionStones extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new ListenerClass(), this);
 
         // check that WorldGuard and WorldEdit are enabled (WorldGuard will only be enabled if there's WorldEdit)
-        if (getServer().getPluginManager().getPlugin("WorldGuard") == null || !getServer().getPluginManager().getPlugin("WorldGuard").isEnabled()) {
+        Plugin worldGuard = Bukkit.getPluginManager().getPlugin("WorldGuard");
+        if (worldGuard == null || !worldGuard.isEnabled()) {
             getLogger().severe("WorldGuard or WorldEdit not enabled! Disabling ProtectionStones...");
             getServer().getPluginManager().disablePlugin(this);
         }
 
         // check if Vault is enabled (for economy support)
-        if (getServer().getPluginManager().getPlugin("Vault") != null && getServer().getPluginManager().getPlugin("Vault").isEnabled()) {
+        Plugin vault = getServer().getPluginManager().getPlugin("Vault");
+        if (vault != null && vault.isEnabled()) {
             RegisteredServiceProvider<Economy> econ = getServer().getServicesManager().getRegistration(net.milkbowl.vault.economy.Economy.class);
             if (econ == null) {
                 getLogger().warning("No economy plugin found by Vault! There will be no economy support!");
@@ -589,7 +600,8 @@ public class ProtectionStones extends JavaPlugin {
         }
 
         // check for PlaceholderAPI
-        if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null && getServer().getPluginManager().getPlugin("PlaceholderAPI").isEnabled()) {
+        Plugin papi = getServer().getPluginManager().getPlugin("PlaceholderAPI");
+        if (papi != null && papi.isEnabled()) {
             getLogger().info("PlaceholderAPI support enabled!");
             placeholderAPISupportEnabled = true;
             new PSPlaceholderExpansion().register();
@@ -598,7 +610,8 @@ public class ProtectionStones extends JavaPlugin {
         }
 
         // check for LuckPerms
-        if (getServer().getPluginManager().getPlugin("LuckPerms") != null && getServer().getPluginManager().getPlugin("LuckPerms").isEnabled()) {
+        Plugin lp = getServer().getPluginManager().getPlugin("LuckPerms");
+        if (lp != null && lp.isEnabled()) {
             try {
                 luckPermsSupportEnabled = true;
                 luckPerms = getServer().getServicesManager().load(LuckPerms.class);
@@ -610,6 +623,12 @@ public class ProtectionStones extends JavaPlugin {
 
         // load configuration
         loadConfig(false);
+        // load executors
+        this.executor = Executors.newFixedThreadPool(this.getConfigOptions().asyncThreads, new ThreadFactoryBuilder()
+                .setNameFormat("ProtectionStones Async Task Executor - %d")
+                .setPriority(Thread.NORM_PRIORITY - 2)
+                .build()
+        );
 
         // register protectionstones.flags.edit.[flag] permission
         FlagHandler.initializePermissions();
@@ -637,7 +656,7 @@ public class ProtectionStones extends JavaPlugin {
         // uuid cache
         getLogger().info("Building UUID cache... (if slow change async-load-uuid-cache in the config to true)");
         if (configOptions.asyncLoadUUIDCache) { // async load
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            plugin.getAsyncExecutor().execute(() -> {
                 for (OfflinePlayer op : Bukkit.getOfflinePlayers()) {
                     UUIDCache.storeUUIDNamePair(op.getUniqueId(), op.getName());
                 }
@@ -658,7 +677,7 @@ public class ProtectionStones extends JavaPlugin {
         if (configOptions.regionNegativeMinMaxUpdated == null || !configOptions.regionNegativeMinMaxUpdated)
             LegacyUpgrade.upgradeRegionsWithNegativeYValues();
 
-        getLogger().info(ChatColor.WHITE + "ProtectionStones has successfully started!");
+        getLogger().info("ProtectionStones has successfully started!");
     }
 
 }

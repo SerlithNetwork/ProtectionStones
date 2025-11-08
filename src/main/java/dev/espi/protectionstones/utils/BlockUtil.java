@@ -62,7 +62,7 @@ public class BlockUtil {
     }
 
     public static String getProtectBlockType(ItemStack i) {
-        if (i.getType() == Material.PLAYER_HEAD || i.getType() == Material.LEGACY_SKULL_ITEM) {
+        if (i.getType() == Material.PLAYER_HEAD) {
             SkullMeta sm = (SkullMeta) i.getItemMeta();
 
             // PLAYER_HEAD

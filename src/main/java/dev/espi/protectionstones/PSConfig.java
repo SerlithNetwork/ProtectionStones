@@ -79,6 +79,9 @@ public class PSConfig {
     @Path("admin.cleanup_delete_regions_with_members_but_no_owners")
     public Boolean cleanupDeleteRegionsWithMembersButNoOwners;
 
+    @Path("async.threads")
+    public Integer asyncThreads;
+
     @Path("economy.max_rent_price")
     public Double maxRentPrice;
     @Path("economy.min_rent_price")
@@ -92,6 +95,7 @@ public class PSConfig {
     @Path("economy.tax_message_on_join")
     public Boolean taxMessageOnJoin;
 
+    @SuppressWarnings("ResultOfMethodCallIgnored")
     static void initConfig() {
 
         // check if using config v1 or v2 (config.yml -> config.toml)
@@ -106,10 +110,10 @@ public class PSConfig {
             }
             if (!ProtectionStones.blockDataFolder.exists()) {
                 ProtectionStones.blockDataFolder.mkdir();
-                Files.copy(PSConfig.class.getResourceAsStream("/block1.toml"), Paths.get(ProtectionStones.blockDataFolder.getAbsolutePath() + "/block1.toml"), StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(Objects.requireNonNull(PSConfig.class.getResourceAsStream("/block1.toml")), Paths.get(ProtectionStones.blockDataFolder.getAbsolutePath() + "/block1.toml"), StandardCopyOption.REPLACE_EXISTING);
             }
             if (!ProtectionStones.configLocation.exists()) {
-                Files.copy(PSConfig.class.getResourceAsStream("/config.toml"), Paths.get(ProtectionStones.configLocation.toURI()), StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(Objects.requireNonNull(PSConfig.class.getResourceAsStream("/config.toml")), Paths.get(ProtectionStones.configLocation.toURI()), StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException ex) {
             Logger.getLogger(ProtectionStones.class.getName()).log(Level.SEVERE, null, ex);
@@ -140,8 +144,9 @@ public class PSConfig {
         } while (true);
 
         // load protection stones to options map
-        if (ProtectionStones.blockDataFolder.listFiles().length == 0) {
-            ProtectionStones.getPluginLogger().warning("The blocks folder is empty! You do not have any protection blocks configured!");
+        File[] files = ProtectionStones.blockDataFolder.listFiles();
+        if (files == null || files.length == 0) {
+            ProtectionStones.getPluginLogger().warn("The blocks folder is empty! You do not have any protection blocks configured!");
         } else {
 
             // temp file to load in default ps block config
@@ -149,10 +154,10 @@ public class PSConfig {
             try {
                 tempFile = File.createTempFile("psconfigtemp", ".toml");
                 try (FileOutputStream out = new FileOutputStream(tempFile)) {
-                    IOUtils.copy(PSConfig.class.getResourceAsStream("/block1.toml"), out);
+                    IOUtils.copy(Objects.requireNonNull(PSConfig.class.getResourceAsStream("/block1.toml")), out);
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                ProtectionStones.getPluginLogger().error("Failed to create a temporary file", e);
                 return;
             }
             CommentedFileConfig template = CommentedFileConfig.of(tempFile);
@@ -160,7 +165,7 @@ public class PSConfig {
 
             // iterate over block files and load into map
             ProtectionStones.getPluginLogger().info("Protection Stone Blocks:");
-            for (File file : ProtectionStones.blockDataFolder.listFiles()) {
+            for (File file : files) {
 
                 CommentedFileConfig c = CommentedFileConfig.builder(file).sync().build();
                 c.load();
@@ -189,25 +194,27 @@ public class PSConfig {
 
                 // convert toml data into object
                 PSProtectBlock b = new ObjectConverter().toObject(c, PSProtectBlock::new);
+                // Handle pre-processing of adventure format
+                b.handleComponents();
 
                 // check if material is valid, and is not a player head (since player heads also have the player name after)
                 if (Material.getMaterial(b.type) == null && !(b.type.startsWith(Material.PLAYER_HEAD.toString()))) {
-                    ProtectionStones.getPluginLogger().warning("Unrecognized material: " + b.type);
-                    ProtectionStones.getPluginLogger().warning("Block will not be added. Please fix this in your config.");
+                    ProtectionStones.getPluginLogger().warn("Unrecognized material: {}", b.type);
+                    ProtectionStones.getPluginLogger().warn("Block will not be added. Please fix this in your config.");
                     continue;
                 }
 
                 // check for duplicates
                 if (ProtectionStones.isProtectBlockType(b.type)) {
-                    ProtectionStones.getPluginLogger().warning("Duplicate block type found! Ignoring the extra block " + b.type);
+                    ProtectionStones.getPluginLogger().warn("Duplicate block type found! Ignoring the extra block {}", b.type);
                     continue;
                 }
                 if (ProtectionStones.getProtectBlockFromAlias(b.alias) != null) {
-                    ProtectionStones.getPluginLogger().warning("Duplicate block alias found! Ignoring the extra block " + b.alias);
+                    ProtectionStones.getPluginLogger().warn("Duplicate block alias found! Ignoring the extra block {}", b.alias);
                     continue;
                 }
 
-                ProtectionStones.getPluginLogger().info("- " + b.type + " (" + b.alias + ")");
+                ProtectionStones.getPluginLogger().info("- {} ({})", b.type, b.alias);
                 FlagHandler.initDefaultFlagsForBlock(b); // process flags for block and set regionFlags field
 
                 // for PLAYER_HEAD:base64, we need to change the entry to link to a UUID hash instead of storing the giant base64

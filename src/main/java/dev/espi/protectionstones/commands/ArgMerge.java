@@ -129,7 +129,7 @@ public class ArgMerge implements PSCommandArg {
             if (!WGUtils.canMergeRegionTypes(aRegion.getTypeOptions(), aRoot))
                 return PSL.msg(p, PSL.MERGE_NOT_ALLOWED.msg());
 
-            Bukkit.getScheduler().runTaskAsynchronously(ProtectionStones.getInstance(), () -> {
+            ProtectionStones.getInstance().getAsyncExecutor().execute(() -> {
                 try {
                     WGMerge.mergeRealRegions(p.getWorld(), rm, aRoot, Arrays.asList(aRegion, aRoot));
                 } catch (WGMerge.RegionHoleException e) {

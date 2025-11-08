@@ -91,8 +91,8 @@ class ArgAdminCleanup {
 
         // async cleanup task
         String finalAlias = alias;
-        Bukkit.getScheduler().runTaskAsynchronously(ProtectionStones.getInstance(), () -> {
-            int days = (args.size() > 0) ? Integer.parseInt(args.get(0)) : 30; // 30 days is default if days aren't specified
+        ProtectionStones.getInstance().getAsyncExecutor().execute(() -> {
+            int days = (!args.isEmpty()) ? Integer.parseInt(args.getFirst()) : 30; // 30 days is default if days aren't specified
 
             PSL.msg(p, PSL.ADMIN_CLEANUP_HEADER.msg()
                     .replace("%arg%", cleanupOperation)

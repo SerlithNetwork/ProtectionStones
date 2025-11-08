@@ -1,6 +1,6 @@
 name: ProtectionStones
-version: ${version}
-description: ${description}
+version: $version
+description: $description
 authors: [EspiDev]
 
 depend: [WorldGuard, WorldEdit]

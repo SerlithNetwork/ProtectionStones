@@ -84,7 +84,7 @@ public class ArgView implements PSCommandArg {
 
         // send particles to client
 
-        Bukkit.getScheduler().runTaskAsynchronously(ProtectionStones.getInstance(), () -> {
+        ProtectionStones.getInstance().getAsyncExecutor().execute(() -> {
 
             AtomicInteger modU = new AtomicInteger(0);
 

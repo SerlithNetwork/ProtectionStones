@@ -1,0 +1,24 @@
+name: ProtectionStones
+version: $version
+description: $description
+authors: [EspiDev]
+main: dev.espi.protectionstones.ProtectionStones
+api-version: 1.19
+
+dependencies:
+  server:
+    WorldGuard:
+      load: BEFORE
+      required: true
+    WorldEdit:
+      load: BEFORE
+      required: true
+    Vault:
+      load: BEFORE
+      required: false
+    PlaceholderAPI:
+      load: BEFORE
+      required: false
+    LuckPerms:
+      load: BEFORE
+      required: false

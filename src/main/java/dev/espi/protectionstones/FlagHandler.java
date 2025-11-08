@@ -33,7 +33,6 @@ import org.bukkit.permissions.Permission;
 import org.bukkit.permissions.PermissionDefault;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class FlagHandler {
     public static final List<String> FLAG_GROUPS = Arrays.asList("all", "members", "owners", "nonmembers", "nonowners");
@@ -83,8 +82,7 @@ public class FlagHandler {
             registry.register(PS_TAX_LAST_PAYMENT_ADDED);
             registry.register(PS_TAX_AUTOPAYER);
         } catch (FlagConflictException e) {
-            Bukkit.getLogger().severe("Flag conflict found! The plugin will not work properly! Please contact the developers of the plugin.");
-            e.printStackTrace();
+            ProtectionStones.getInstance().getSLF4JLogger().error("Flag conflict found! The plugin will not work properly! Please contact the developers of the plugin.", e);
         }
 
         // extra custom flag registration
@@ -128,7 +126,7 @@ public class FlagHandler {
 
     // Edit flags that require placeholders (variables)
     public static void initDefaultFlagPlaceholders(HashMap<Flag<?>, Object> flags, Player p) {
-        for (Flag<?> f : getPlayerPlaceholderFlags().stream().map(WGUtils.getFlagRegistry()::get).collect(Collectors.toList())) {
+        for (Flag<?> f : getPlayerPlaceholderFlags().stream().map(WGUtils.getFlagRegistry()::get).toList()) {
             if (flags.get(f) != null) {
                 String s = (String) flags.get(f);
 
@@ -161,8 +159,7 @@ public class FlagHandler {
                     b.allowedFlags.put(f, FLAG_GROUPS);
                 }
             } catch (Exception e) {
-                ProtectionStones.getInstance().getLogger().warning("Skipping flag " + f + ". Did you configure the allowed_flags section correctly?");
-                e.printStackTrace();
+                ProtectionStones.getInstance().getSLF4JLogger().warn("Skipping flag {}. Did you configure the allowed_flags section correctly?", f, e);
             }
         }
 
@@ -172,10 +169,11 @@ public class FlagHandler {
         // loop through default flags
         for (String flagraw : b.flags) {
             String[] split = flagraw.split(" ");
-            String settings = "", // flag settings (after flag name)
-                    group = "", // -g group
-                    flagName = split[0];
-            boolean isEmpty = false; // whether or not it's the -e flag at beginning
+            StringBuilder settings = new StringBuilder();// flag settings (after flag name)
+                    // -g group
+            String group = "";
+            String flagName = split[0];
+            boolean isEmpty = false; // whether it's the -e flag at beginning
 
             try {
                 int startInd = 1;
@@ -190,31 +188,31 @@ public class FlagHandler {
                 }
 
                 // get settings (after flag name)
-                for (int i = startInd; i < split.length; i++) settings += split[i] + " ";
-                settings = settings.trim();
+                for (int i = startInd; i < split.length; i++) settings.append(split[i]).append(" ");
+                settings = new StringBuilder(settings.toString().trim());
 
                 // if the setting is set to -e, change to empty flag
-                if (settings.equals("-e")) {
+                if (settings.toString().equals("-e")) {
                     isEmpty = true;
                 }
 
                 // determine worldguard flag object
                 Flag<?> flag = Flags.fuzzyMatchFlag(WGUtils.getFlagRegistry(), flagName);
-                FlagContext fc = FlagContext.create().setInput(settings).build();
+                FlagContext fc = FlagContext.create().setInput(settings.toString()).build();
 
                 // warn if flag setting has already been set
                 if (b.regionFlags.containsKey(flag)) {
-                    ProtectionStones.getPluginLogger().warning(String.format("Duplicate default flags found (only one flag setting can be applied for each flag)! Overwriting the previous value set for %s with \"%s\" ...", flagName, flagraw));
+                    ProtectionStones.getPluginLogger().warn("Duplicate default flags found (only one flag setting can be applied for each flag)! Overwriting the previous value set for {} with \"{}\" ...", flagName, flagraw);
                 }
 
                 // apply flag
                 if (isEmpty) { // empty flag
                     b.regionFlags.put(flag, "");
-                } else if (!group.equals("")) { // group flag
+                } else if (!group.isEmpty()) { // group flag
 
                     RegionGroup rGroup = flag.getRegionGroupFlag().detectValue(group);
                     if (rGroup == null) {
-                        ProtectionStones.getPluginLogger().severe(String.format("Error parsing flag \"%s\", the group value is invalid!", flagraw));
+                        ProtectionStones.getPluginLogger().error("Error parsing flag \"{}\", the group value is invalid!", flagraw);
                         continue;
                     }
 
@@ -226,8 +224,7 @@ public class FlagHandler {
                 }
 
             } catch (Exception e) {
-                ProtectionStones.getPluginLogger().warning("Error parsing flag: " + split[0] + "\nError: ");
-                e.printStackTrace();
+                ProtectionStones.getPluginLogger().warn("Error parsing flag: {}\nError: ", split[0], e);
             }
         }
     }

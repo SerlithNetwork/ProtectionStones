@@ -43,7 +43,7 @@ public class RecipeUtil {
                     Bukkit.addRecipe(parseRecipe(b));
                     recipes.add(getNamespacedKeyForBlock(b));
                 } catch (IllegalStateException e) {
-                    ProtectionStones.getPluginLogger().warning("Reloading custom recipes does not work right now, you have to restart the server for updated recipes.");
+                    ProtectionStones.getPluginLogger().warn("Reloading custom recipes does not work right now, you have to restart the server for updated recipes.");
                 }
             }
         }
@@ -113,11 +113,11 @@ public class RecipeUtil {
                 if (use != null && use.createItem() != null) {
                     recipe.setIngredient(items.get(mat), new RecipeChoice.ExactChoice(use.createItem()));
                 } else {
-                    ProtectionStones.getPluginLogger().warning("Unable to resolve material " + mat + " for the crafting recipe for " + block.alias + ".");
+                    ProtectionStones.getPluginLogger().warn("Unable to resolve material {} for the crafting recipe for {}.", mat, block.alias);
                 }
 
             } else {
-                ProtectionStones.getPluginLogger().warning("Unable to find material " + mat + " for the crafting recipe for " + block.alias + ".");
+                ProtectionStones.getPluginLogger().warn("Unable to find material {} for the crafting recipe for {}.", mat, block.alias);
             }
         }
 

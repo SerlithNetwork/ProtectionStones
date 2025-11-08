@@ -242,7 +242,7 @@ public class BlockHandler {
         try {
             region.setFlags(flags);
         } catch (Exception e) {
-            ProtectionStones.getPluginLogger().severe(String.format("Region flags have failed to initialize for: %s (%s)", blockOptions.alias, blockOptions.type));
+            ProtectionStones.getPluginLogger().error("Region flags have failed to initialize for: {} ({})", blockOptions.alias, blockOptions.type);
             throw e;
         }
         FlagHandler.initCustomFlagsForPS(region, l, blockOptions);
@@ -312,7 +312,7 @@ public class BlockHandler {
             // actually do auto merge
             if (!showGUI) {
                 PSRegion finalMergeTo = mergeTo;
-                Bukkit.getScheduler().runTaskAsynchronously(ProtectionStones.getInstance(), () -> {
+                ProtectionStones.getInstance().getAsyncExecutor().execute(() -> {
                     try {
                         WGMerge.mergeRealRegions(p.getWorld(), r.getWGRegionManager(), finalMergeTo, Arrays.asList(finalMergeTo, r));
                         PSL.msg(p, PSL.MERGE_AUTO_MERGED.msg().replace("%region%", finalMergeTo.getId()));
