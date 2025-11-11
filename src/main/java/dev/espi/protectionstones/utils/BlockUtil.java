@@ -15,30 +15,24 @@
 
 package dev.espi.protectionstones.utils;
 
+import com.destroystokyo.paper.profile.PlayerProfile;
+import com.destroystokyo.paper.profile.ProfileProperty;
 import dev.espi.protectionstones.PSProtectBlock;
 import dev.espi.protectionstones.ProtectionStones;
+import io.papermc.paper.datacomponent.DataComponentTypes;
+import io.papermc.paper.datacomponent.item.ResolvableProfile;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.block.Block;
 import org.bukkit.block.Skull;
-import org.bukkit.entity.ArmorStand;
-import org.bukkit.entity.Entity;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.SkullMeta;
-import org.bukkit.profile.PlayerProfile;
-import org.bukkit.profile.PlayerTextures;
 
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.HashMap;
 import java.util.UUID;
-import java.util.Base64;
-import org.json.simple.JSONObject;
-import org.json.simple.parser.JSONParser;
-import org.json.simple.parser.ParseException;
 
+@SuppressWarnings("UnstableApiUsage")
 public class BlockUtil {
     static final int MAX_USERNAME_LENGTH = 16;
     public static HashMap<String, String> uuidToBase64Head = new HashMap<>();
@@ -71,12 +65,13 @@ public class BlockUtil {
             }
 
             // PLAYER_HEAD:base64
-            if (ProtectionStones.getBlockOptions("PLAYER_HEAD:" + sm.getOwningPlayer().getUniqueId()) != null) {
-                return Material.PLAYER_HEAD + ":" + sm.getOwningPlayer().getUniqueId();
+            ResolvableProfile profile = i.getData(DataComponentTypes.PROFILE);
+            if (ProtectionStones.getBlockOptions("PLAYER_HEAD:" + profile.uuid()) != null) {
+                return Material.PLAYER_HEAD + ":" + profile.uuid();
             }
 
             // PLAYER_HEAD:name
-            return Material.PLAYER_HEAD + ":" + sm.getOwningPlayer().getName(); // return name if it doesn't exist
+            return Material.PLAYER_HEAD + ":" + profile.name(); // return name if it doesn't exist
         }
         return i.getType().toString();
     }
@@ -85,14 +80,14 @@ public class BlockUtil {
         if (block.getType() == Material.PLAYER_HEAD || block.getType() == Material.PLAYER_WALL_HEAD) {
 
             Skull s = (Skull) block.getState();
-            if (s.hasOwner() && isOwnedSkullTypeConfigured()) {
-                OfflinePlayer op = s.getOwningPlayer();
-                if (ProtectionStones.getBlockOptions("PLAYER_HEAD:" + op.getUniqueId()) != null) {
+            ResolvableProfile profile = s.getProfile();
+            if (profile != null && isOwnedSkullTypeConfigured()) {
+                if (ProtectionStones.getBlockOptions("PLAYER_HEAD:" + profile.uuid()) != null) {
                     // PLAYER_HEAD:base64
-                    return Material.PLAYER_HEAD + ":" + op.getUniqueId();
+                    return Material.PLAYER_HEAD + ":" + profile.uuid();
                 } else {
                     // PLAYER_HEAD:name
-                    return Material.PLAYER_HEAD + ":" + op.getName(); // return name if doesn't exist
+                    return Material.PLAYER_HEAD + ":" + profile.name(); // return name if doesn't exist
                 }
             } else { // PLAYER_HEAD
                 return Material.PLAYER_HEAD.toString();
@@ -120,73 +115,38 @@ public class BlockUtil {
         } else {
             OfflinePlayer op = Bukkit.getOfflinePlayer(psType.split(":")[1]);
             Skull s = (Skull) b.getState();
-            s.setOwningPlayer(op);
+            s.setProfile(ResolvableProfile.resolvableProfile(op.getPlayerProfile()));
             s.update();
         }
-    }
-
-    public static PlayerProfile getProfile(String uuid, String base64) {
-        String name = uuid.substring(0, 16);
-        PlayerProfile profile = Bukkit.getServer().createPlayerProfile(UUID.fromString(uuid), name);
-        PlayerTextures textures = profile.getTextures();
-
-        // decode base64 to URL
-        byte[] decodedBytes = Base64.getDecoder().decode(base64);
-        String decodedString = new String(decodedBytes);
-
-        // read decoded string as JSON object
-        // sample: {"textures":{"SKIN":{"url":"http://textures.minecraft.net/texture/..."}}}
-        String url = "";
-        try {
-            JSONParser parser = new JSONParser();
-            JSONObject object = (JSONObject) parser.parse(decodedString);
-            JSONObject jsonTextures = (JSONObject) object.get("textures");
-            JSONObject jsonSkin = (JSONObject) jsonTextures.get("SKIN");
-            url = (String) jsonSkin.get("url");
-        } catch (ParseException exception) {
-            throw new RuntimeException("Invalid JSON retrieved from base64 " + decodedString, exception);
-        }
-
-        URL urlObject;
-        try {
-            urlObject = new URL(url);
-        } catch (MalformedURLException exception) {
-            throw new RuntimeException("Invalid decoded URL from head data: " + url, exception);
-        }
-
-        textures.setSkin(urlObject);
-        profile.setTextures(textures);
-        return profile;
     }
 
     public static ItemStack setHeadType(String psType, ItemStack item) {
         String name = psType.split(":")[1];
         if (name.length() > MAX_USERNAME_LENGTH) { // base 64 head
             String uuid = name;
-
-            // decode base64 to URL
-            String base64 = uuidToBase64Head.get(name);
-            PlayerProfile profile = getProfile(uuid, base64);
-
-            SkullMeta meta = (SkullMeta) item.getItemMeta();
-            meta.setOwnerProfile(profile);
-            item.setItemMeta(meta);
-
-            return item;
+            String base64 = uuidToBase64Head.get(uuid);
+            item.setData(DataComponentTypes.PROFILE, ResolvableProfile.resolvableProfile()
+                    .uuid(UUID.fromString(uuid))
+                    .addProperty(new ProfileProperty("textures", base64))
+                    .build()
+            );
         } else { // normal name head
             SkullMeta sm = (SkullMeta) item.getItemMeta();
             sm.setOwningPlayer(Bukkit.getOfflinePlayer(name));
             item.setItemMeta(sm);
-            return item;
         }
+        return item;
     }
 
+    @SuppressWarnings("UnstableApiUsage")
     private static void blockWithBase64(Block block, String uuid) {
         String base64 = uuidToBase64Head.get(uuid);
-        PlayerProfile profile = getProfile(uuid, base64);
-
         Skull skull = (Skull) block.getState();
-        skull.setOwnerProfile(profile);
+        skull.setProfile(ResolvableProfile.resolvableProfile()
+                .uuid(UUID.fromString(uuid))
+                .addProperty(new ProfileProperty("textures", base64))
+                .build()
+        );
         skull.update(false);
     }
 
@@ -200,7 +160,7 @@ public class BlockUtil {
 
         // the below is bad, because hashcode should really not be used... unfortunately, this is used in production so it will have to stay like this
         // until I can find a way to convert items to the new uuid
-        // see github issue #126
+        // see GitHub issue #126
         return new UUID(base64.hashCode(), base64.hashCode()).toString();
     }
 }
